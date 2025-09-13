@@ -15,13 +15,13 @@ It enables multiple clients to connect to a server, exchange messages, files, an
 - - Launches the client in the current terminal
  - -Port parameter (default `5555`) configurable directly via command
 
----
+
 
 ## Installation
 # Install dependencies
 pip install -r requirements.txt
 
----
+
 
 ## Usage
 # Launch server + client automatically
@@ -40,7 +40,6 @@ python server.py 5555   # starts the server on port 5555
 
 python client.py        # starts a client. The client will ask for IP and port
 ```
----
 
 ## Project Organization
 
@@ -52,7 +51,6 @@ python client.py        # starts a client. The client will ask for IP and port
 
 -File/ → directory where received files are stored
 
----
 
 ## Future Developments
 
