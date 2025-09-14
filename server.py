@@ -24,28 +24,37 @@ def get_local_ip():
         s.close()
     return ip
 
-def HandleFile(message, client):
-    """Receive file data from a client and store it under ./File/."""
-    file_name = message.split("*")[1]
+def HandleFile(message, conn):
+    filename = message.split("*")[1]
     os.makedirs("File", exist_ok=True)
-    with open(f"File/{file_name}", "wb") as f:
+
+    with open(f"File/{filename}", "wb") as f:
         while True:
-            data = client.recv(BUFFER_SIZE)
-            if not data:
-                return
-            if data.endswith(b"/EndFileTransfer"):
-                f.write(data[:-16])
-                return file_name
-            f.write(data)
+            chunk = conn.recv(BUFFER_SIZE)
+            if not chunk:
+                break
+            if chunk.endswith(b"/EndFileTransfer"):
+                f.write(chunk[:-16])  # enlever le marqueur
+                break
+            f.write(chunk)
+
+    print(f"[+] Fichier reçu : {filename}")
+    return filename
+
 
 def SendFileToClient(filename, client):
-    """Send a stored file to a specific client."""
-    file_path = f"File/{filename}"
-    if os.path.isfile(file_path):
-        client.send(f"2*{filename}".encode("utf-8"))
-        with open(file_path, "rb") as f:
-            client.sendfile(f)
-        client.send(b"/EndFileTransfer")
+    """Renvoie un fichier à un client spécifique"""
+    header = f"2*{os.path.basename(filename)}*"
+    client.sendall(header.encode("utf-8"))
+
+    with open(filename, "rb") as f:
+        while chunk := f.read(BUFFER_SIZE):
+            client.sendall(chunk)
+
+    client.sendall(b"/EndFileTransfer")
+    print(f"[>] Fichier {filename} envoyé à {client.getpeername()}")
+
+
 
 def broadcast(message, sender_conn):
     """Send a message to all connected clients except the sender."""
@@ -65,23 +74,37 @@ def handle_new_message(message, addr, conn):
                     SendFileToClient(filename, client)
 
 def handle_client(conn, addr):
-    """Handle a single client connection (thread target)."""
-    print(f"[+] New client connected: {addr}")
+    print(f"[+] Nouveau client connecté : {addr}")
     clients.append(conn)
+
     try:
         while True:
-            try:
-                data = conn.recv(1024)
-                if not data:
-                    break
-                handle_new_message(data.decode("utf-8"), addr, conn)
-            except ConnectionResetError:
-                # Client closed connection unexpectedly
+            header = conn.recv(1024)
+            if not header:
                 break
+
+            try:
+                message = header.decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # si c'est du binaire, on ignore ici
+
+            if message.startswith("2*"):  # fichier
+                filepath = HandleFile(message, conn)
+                # 🔥 Rebalancer le fichier à tous les autres
+                for client in clients:
+                    if client != conn:
+                        SendFileToClient(filepath, client)
+            else:
+                print(f"[{addr}] {message}")
+                for client in clients:
+                    if client != conn:
+                        client.sendall(message.encode("utf-8"))
+
+    except Exception as e:
+        print(f"[!] Erreur client {addr}: {e}")
     finally:
-        print(f"[-] Client disconnected: {addr}")
-        if conn in clients:
-            clients.remove(conn)
+        print(f"[-] Client déconnecté : {addr}")
+        clients.remove(conn)
         conn.close()
 
 def start_server(host="127.0.0.1", port=5555):
