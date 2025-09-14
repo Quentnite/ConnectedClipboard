@@ -6,23 +6,34 @@ import os
 import psutil
 import sys
 
+
+
 BUFFER_SIZE = 4096
 
+
 def receive_messages(sock):
-    """Thread target: receive messages from the server and handle clipboard or files."""
+    """Thread de réception côté client"""
     while True:
         try:
-            data = sock.recv(1024)
-            if not data:
+            header = sock.recv(1024)
+            if not header:
                 break
-            message = data.decode("utf-8")
-            if message[0] == "2":
-                HandleFile(message, sock)
+
+            try:
+                message = header.decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # si jamais binaire, on ignore
+
+            if message.startswith("2*"):  # début de transfert fichier
+                filename = message.split("*")[1]
+                receive_file(sock, filename)
             else:
                 to_clipboard = message[2:]
                 print(f"[INFO] Clipboard updated: {to_clipboard}")
                 clipboard.copy(to_clipboard)
-        except:
+
+        except Exception as e:
+            print(f"[!] Erreur réception: {e}")
             break
 
 def envoyer_fichier_without_path(sock):
@@ -32,22 +43,28 @@ def envoyer_fichier_without_path(sock):
         filename = os.path.basename(filepath)
         sock.send(f"2*{filename}*".encode("utf-8"))
         with open(filepath, "rb") as f:
-            sock.sendfile(f)
+            while chunk := f.read(4096):
+                sock.sendall(chunk)
         sock.send(b"/EndFileTransfer")
+        print(f"[>] Fichier envoyé : {filename}")
 
-def HandleFile(message, client):
-    """Receive a file sent by the server and save it under ./File/."""
-    file_name = message.split("*")[1]
+def receive_file(sock, filename):
+    """Réception d'un fichier en binaire"""
     os.makedirs("File", exist_ok=True)
-    with open(f"File/{file_name}", "wb") as f:
+    filepath = f"File/{filename}"
+
+    with open(filepath, "wb") as f:
         while True:
-            data = client.recv(BUFFER_SIZE)
-            if not data:
-                return
-            if data.endswith(b"/EndFileTransfer"):
-                f.write(data[:-16])
-                return file_name
-            f.write(data)
+            chunk = sock.recv(BUFFER_SIZE)
+            if not chunk:
+                break
+            if chunk.endswith(b"/EndFileTransfer"):
+                f.write(chunk[:-16])  # on enlève le marqueur
+                break
+            f.write(chunk)
+
+    print(f"[+] Nouveau fichier reçu : {filename} (sauvé dans {filepath})")
+
 
 def get_local_info():
     """Print network interfaces and IPv4 addresses (for debugging)."""
